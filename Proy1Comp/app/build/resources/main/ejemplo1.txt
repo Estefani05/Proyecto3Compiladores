@@ -1,0 +1,55 @@
+
+int x = 10
+
+@ Error 2: Invalid initialization
+string y = "hola" 123
+
+@ Error 3: Function declaration missing parenthesis
+int main {
+    @ Error 4: Invalid expression 
+    int z = 5 + * 3?
+    
+    @ Error 5: Missing return type
+    return?
+    
+    @ Error 6: Invalid statement
+    int 123abc = 10?
+}
+
+@ Error 7: Invalid type
+unsigned int a = 5?
+
+@ Error 8: Mismatched brackets
+int test ʃ  ʅ  {
+    int b = 20?
+
+@ Error 9: Invalid token in expression
+int c = 10 @ 5?
+
+@ Error 10: Missing right-hand side in assignment
+int d = ?
+
+@ Error 11: Multiple type declarations
+int string e = "invalid"?
+
+@ Error 12: Extra tokens at end of declaration
+int f = 100 200?
+
+@ Error 13: Invalid main function
+int main ʃ  ʅ  {
+    @ Error 14: Invalid return expression
+    return x + ?
+}
+
+int x = 10  @ Falta ?
+string y = "hola"
+
+int main ʃ  ʅ  {
+    int x = - 10?
+    return x?
+}
+ int string 502 /* Hola */
+ + ? hola mundo char
+
+ {Hola 
+ $#&/()=?¡?)"!Vaca} Vaca

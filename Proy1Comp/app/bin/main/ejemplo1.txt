@@ -1,0 +1,116 @@
+
+
+global int y = 2 ? 
+
+global string msg = "hola" ? 
+
+global int x?
+bool r = 5 + "3" ?
+bool m = luna ?
+bool D1 = r ^ m?
+
+main ʃʅ
+((
+
+  int  array | 5 | 6 | ?
+  int i?
+  int array |67+ i | ?  
+
+  bool  b1 ? 
+
+  string  s1  = "ss" ? 
+  leer ʃ  s1  ʅ ? 
+  print ʃ  b1  ʅ ? 
+  print ʃ luna ʅ ? 
+  print ʃ -67 ʅ ?
+
+  x = array [ 2 ]?
+  string nombre = "hola" ?
+  int numero = 2 ?
+  x = 4?
+
+  do
+    ((
+       var  =  var  - 1? @semantico
+    / while ʃ  var2 >122 ^ 12> ʃ 34+35 ʅ  ʅ ? @semantico
+
+  float fl2=37**fl1+ ʃ 456~76 ʅ ?
+
+  arr = 10 - arr[67] * func1  ʃ hola, luna, "hola mundo", 45, 'a' ʅ ?
+  
+    do 
+  ((  
+      int juan = 6 ? 
+    / while ʃ x != 10 ʅ ? 
+    
+
+  if  ʃ  var ==0 ʅ
+    ((
+      print ʃ "entra al if" ʅ ?
+    /
+  if ʃ luna ʅ
+   ((
+      print ʃ  var  ʅ ?
+    /
+  else
+    ((
+      print ʃ  var3  ʅ ?
+
+    /
+  
+
+  if ʃ x < 10 ʅ
+    ((  
+      int juan = 2 ? 
+    /
+  elif ʃ j == 10 ʅ
+    ((  
+      int juan = 6 ? 
+    /
+  else 
+    (( 
+      return "x" ?  
+    /
+
+  Switch ʃ x ʅ 
+  ((
+    case 1:
+      y = 2?
+      break?
+    case 2:
+      y = 2?
+      break?
+    default:
+      y = 3?
+  /
+
+  do 
+  ((  
+      int juan = 6 ? 
+    / while ʃ x != 10 ʅ ? 
+
+  for ʃ int i = 0 ? i < 10? i = i + 1 ʅ 
+  ((
+        string msg = "hola" ?
+  /
+
+  /
+
+function int f1 ʃ int num1 , string num2 ʅ
+((
+   num1 = "hola" ?
+   return num1?
+/
+
+function string f1 ʃ int num1 , string num2 ʅ
+((
+   num1 = "hola" ?
+   return num1?
+/
+
+function string f2 ʃ int num1 , string num2 ʅ
+((
+   f1 ʃ 2 , num2 ʅ ?
+   num1 = 2 ?
+   return num2?
+/

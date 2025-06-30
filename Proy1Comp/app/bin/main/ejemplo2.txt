@@ -1,0 +1,58 @@
+  global string msg = "hola" ? 
+
+  main ʃʅ
+  ((
+    f2 ʃ 2 , "Me gusta el pastel" ʅ ?
+    f1 ʃ 2 , 4 ʅ ?
+
+    int var3 = 5? 
+    int var4  = 6?
+    if  ʃ  var3 == 5 ^ var4 == 6 ʅ
+    ((
+      print ʃ "entra al if" ʅ ?
+    /
+    else
+    ((
+      print ʃ  "entra al else"  ʅ ?
+
+    /
+
+    for ʃ int i = 0 ? i < 10? i = i + 1 ʅ 
+    ((
+          string msg1 = "hola" ?
+          print ʃ  msg1  ʅ ? 
+          
+    /
+    
+    int var1 = 2 ?
+    do
+    (( 
+       var1  =  var1 * var1 ? 
+       print ʃ  var1  ʅ ?
+    / while ʃ  var1 < 200  ʅ ? 
+
+    int x1 = 5?
+    int array | x1 | ? 
+    array[1] = 2 ?
+
+    x1 = array[1]?
+
+    int x = 10?
+    int array1 | x | x | ? 
+    array1 [1,1] = 25 ?
+    x = array1 [1,1]?
+    print ʃ  x ʅ ?
+    print ʃ  "salimos del for y while bien"  ʅ ? 
+  /
+  function int f1 ʃ int num1 , int num2 ʅ
+  ((
+    print ʃ  num1 ** num2  ʅ ? 
+    return num1?
+  /
+
+  function string f2 ʃ int num1 , string num2 ʅ
+  ((
+
+    print ʃ  num2  ʅ ? 
+    return num2?
+  /

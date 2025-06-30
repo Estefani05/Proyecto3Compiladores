@@ -1,0 +1,7 @@
+=== REGISTRO DE ERRORES ===
+TIPO       LÍNEA COL   MENSAJE
+-----------------------------------------------------
+SEMANTICO  5     37    Función 'f2' no ha sido declarada
+SEMANTICO  5     37    Función 'f2' no tiene tipo de retorno definido
+SEMANTICO  6     18    Función 'f1' no ha sido declarada
+SEMANTICO  6     18    Función 'f1' no tiene tipo de retorno definido

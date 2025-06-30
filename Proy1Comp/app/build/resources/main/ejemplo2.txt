@@ -1,0 +1,68 @@
+
+global int y = 2 ? 
+
+global string msg = "hola" ? 
+
+global int x?
+
+main ʃʅ
+((
+  int  array | 5 | ?
+
+  array [ 2 ]  = 10?
+
+  x = array [ 2 ]?
+  string nombre = "hola" ?
+  int numero = 2 ?
+  x = 4?
+  
+
+  if ʃ x < 10 ʅ
+    ((  
+      int juan = 2 ? 
+    /
+  elif ʃ j == 10 ʅ
+    ((  
+      int juan = 6 ? 
+    /
+  else 
+    (( 
+      return "x" ?  
+    /
+
+  Switch ʃ x ʅ 
+  ((
+    case 1:
+      y = 2?
+      break?
+    case 2:
+      y = 2?
+      break?
+    default:
+      y = 3?
+  /
+
+  do 
+  ((  
+      int juan = 6 ? 
+    / while ʃ x != 10 ʅ ? 
+
+  for ʃ int i = 0 ? i < 10? i = i + 1 ʅ 
+  ((
+        string msg = "hola" ?
+  /
+
+  /
+
+function int f1 ʃ int num1 , string num2 ʅ
+((
+   num1 = "hola" ?
+   return num1?
+/
+
+function string f2 ʃ int num1 , string num2 ʅ
+((
+   f1 ʃ luna , num2 ʅ ?
+   num1 = 2 ?
+   return num2?
+/

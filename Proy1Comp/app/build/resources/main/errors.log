@@ -1,0 +1,12 @@
+=== REGISTRO DE ERRORES ===
+TIPO       LÍNEA COL   MENSAJE
+-----------------------------------------------------
+SEMANTICO  8     1     No se puede asignar un valor de tipo 'desconocido' a una variable de tipo 'int'
+SEMANTICO  24    12    Variable 'j' no ha sido declarada
+SEMANTICO  30    18    Tipo de retorno inválido. Se esperaba 'null' pero se encontró 'string'
+SEMANTICO  41    5     Valor de 'case' duplicado: int
+SINTÁCTICO 50    3     La condición del 'while' debe ser de tipo 'expr_rel' (bool), no 'expr_arit'
+SEMANTICO  50    39    No se puede asignar un valor de tipo 'desconocido' a una variable de tipo 'int'
+SEMANTICO  0     0     Variable 'msg' ya ha sido declarada en el scope 'global_block_6'
+SEMANTICO  59    18    No se puede asignar un valor de tipo 'string' a una variable de tipo 'int'
+SEMANTICO  65    23    Tipo de argumento inválido en la posición 1 para la función 'f1'. Se esperaba 'int' y se recibió 'true'

@@ -1,0 +1,1490 @@
+package org.example.ParserLexer;
+import java_cup.runtime.*;
+import org.example.ErrorHandler;
+import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.List;
+import java.util.HashSet;
+import GeneracionDestino.codigoDestino;
+
+action code {:
+    /* CÓDIGO DE JAVA */
+    public void hola(){
+        System.out.println("Inicio Cup");
+    }
+
+    public void adios(){
+        System.out.println("Fin Cup");
+    }
+:}
+
+parser code {:
+    // Conectar este parser con un scanner
+    BasicLexerCup lex;
+    public static final int EXPECTED_CONFLICTS = 12;
+    boolean mainDefined = false;
+    private String tipoFuncionActual = null; //Guarda la funcion actual
+    String tipoSwitchActual = null; //Guarda el tipo de la variable del switch actual
+    HashSet<String> caseValues = null; //Guarda los case del switch para evitar repetidos
+    Map<String, String> tiposCI = new HashMap<>();
+    String tipoStr ;
+    List<String> listaGlobal = new ArrayList<>();
+    String resultExpr;
+    String condFor;
+    String nombreArray;
+    private final Map<String, List<String>> parametrosPorFuncion = new HashMap<>();
+    
+
+    // ...existing code...
+    ArrayList<String> codigoIntermedio = new ArrayList<>();
+    
+    // Variables para manejo de errores
+    public int errorCount = 0;
+    private ErrorHandler errorHandler;
+    
+    // Método para establecer el ErrorHandler
+    public void setErrorHandler(ErrorHandler handler) {
+        this.errorHandler = handler;
+    }
+
+    // Tabla de símbolos: scope -> lista de tipos de variables
+    HashMap<String, ArrayList<String>> SymbolTable = new HashMap<>();
+    
+    // Scope actual
+    String currentScope = "global";
+    int scopeCounter = 0;
+
+
+    //Obtiene de que tipo es un string 
+    public String obtenerTipoLiteral(String literal) {
+        if (literal.matches("'.'")) {
+            return "char";
+        } else if (literal.matches("\\d+")) {
+            return "int";
+        } else if (literal.matches("\".*\"")) {
+            return "string";
+        }
+        return "desconocido";
+    }
+
+    boolean isTipoImprimible(String tipo) {
+        return tipo.equals("int") || tipo.equals("float") || tipo.equals("char") || tipo.equals("string") || tipo.equals("bool");
+    }
+
+
+    
+    // Método para validar si una variable ya existe en el scope actual
+    public boolean isVariableDeclared(String varName) {
+        if (!SymbolTable.containsKey(currentScope)) {
+            return false;
+        }
+        
+        ArrayList<String> variables = SymbolTable.get(currentScope);
+        for (String var : variables) {
+            if (var.startsWith(varName + ":")) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    // Método para agregar una variable a la tabla de símbolos
+    public void addToSymbolTable(String varName, String varType) {
+        if (variableExists(varName)) {
+            report_SemanticError("Variable '" + varName + "' ya ha sido declarada en el scope '" + currentScope + "'", null);
+            return;
+        }
+        
+        if (!SymbolTable.containsKey(currentScope)) {
+            SymbolTable.put(currentScope, new ArrayList<>());
+        }
+        
+        SymbolTable.get(currentScope).add(varName + ":" + varType);
+        System.out.println("Variable agregada: " + varName + ":" + varType + " en scope: " + currentScope);
+    }
+    
+    // Método para agregar una función a la tabla de símbolos
+    public void addFunctionToSymbolTable(String funcName, String returnType, ArrayList<String> parameters) {
+        if (variableExists(funcName)) {
+            report_SemanticError("Función '" + funcName + "' ya ha sido declarada", null);
+            return;
+        }
+        
+        if (!SymbolTable.containsKey(currentScope)) {
+            SymbolTable.put(currentScope, new ArrayList<>());
+        }
+        
+        StringBuilder funcSignature = new StringBuilder();
+        funcSignature.append(funcName).append(":function(");
+        
+        for (int i = 0; i < parameters.size(); i++) {
+            funcSignature.append(parameters.get(i));
+            if (i < parameters.size() - 1) {
+                funcSignature.append(",");
+            }
+        }
+        
+        funcSignature.append(")->").append(returnType);
+        
+        SymbolTable.get(currentScope).add(funcSignature.toString());
+        System.out.println("Función agregada: " + funcSignature.toString() + " en scope: " + currentScope);
+    }
+
+    //Obtiene los parametros de una funcion en base a su nombre
+    public ArrayList<String> getTiposParametrosFuncion(String nombreFuncion) {
+        for (Map.Entry<String, ArrayList<String>> entry : SymbolTable.entrySet()) {
+            for (String simbolo : entry.getValue()) {
+                if (simbolo.startsWith(nombreFuncion + ":function(")) {
+                    int inicio = simbolo.indexOf('(') + 1;
+                    int fin = simbolo.indexOf(')');
+                    String params = simbolo.substring(inicio, fin);
+                    
+                    ArrayList<String> tipos = new ArrayList<>();
+                    if (!params.isEmpty()) {
+                        String[] partes = params.split(",");
+                        for (String p : partes) {
+                            String[] tipoNombre = p.split("_"); // ejemplo: int_a
+                            tipos.add(tipoNombre[0].trim());
+                        }
+                    }
+                    return tipos;
+                }
+            }
+        }
+        return new ArrayList<>(); // no encontrada, o sin parámetros
+    }
+
+    //Obtiene el tipo de cada parametro de una funcion
+    public ArrayList<String> getTiposDeLista(String args) {
+        ArrayList<String> tipos = new ArrayList<>();
+        if (args == null || args.equals("sin_args")) return tipos;
+
+        String[] partes = args.split(",");
+        for (String tipo : partes) {
+            tipos.add(tipo.trim());
+        }
+        return tipos;
+    }
+    
+    // Método para validar si una variable existe en cualquier scope accesible
+    public boolean variableExists(String varName) {
+        // Buscar en scope actual
+        if (isVariableDeclared(varName)) {
+            return true;
+        }
+        
+        // Buscar en scope global
+        if (!currentScope.equals("global") && SymbolTable.containsKey("global")) {
+            ArrayList<String> globalVars = SymbolTable.get("global");
+            for (String var : globalVars) {
+                if (var.startsWith(varName + ":")) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    //Quita las dimensiones de un array
+    public String quitarDimensiones(String tipoCompleto) {
+        return tipoCompleto.replaceAll("\\[.*?\\]", "");
+    }
+    
+    // Método para validar si una función existe
+    public boolean functionExists(String funcName) {
+        if (SymbolTable.containsKey("global")) {
+            ArrayList<String> globalItems = SymbolTable.get("global");
+            for (String item : globalItems) {
+                if (item.startsWith(funcName + ":function")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    //Valida que dos tipos (string, char) sean iguales
+    public boolean tipoCompatible(String declarado, String asignado) {
+        if (declarado.equals(asignado)) return true;
+
+        if (asignado.equals("sin_inicializar")) return true;
+
+        // Ejemplo: permitir que un exprArit se asigne a int
+        if (declarado.equals("int") && asignado.equals("expr_arit")) return true;
+        
+
+        return false;
+    }
+
+
+    public String getTipoVariable(String varName) {
+    // Buscar en el scope actual
+        if (SymbolTable.containsKey(currentScope)) {
+            for (String entry : SymbolTable.get(currentScope)) {
+                if (entry.startsWith(varName + ":")) {
+                    return entry.split(":")[1];
+                }
+            }
+        }
+
+    // Si no está en el scope actual, buscar en global
+        if (!currentScope.equals("global") && SymbolTable.containsKey("global")) {
+            for (String entry : SymbolTable.get("global")) {
+                if (entry.startsWith(varName + ":") && !entry.contains("function")) {
+                    return entry.split(":")[1];
+                }
+            }
+        }
+
+        // Si no se encuentra
+        return "error";
+    }
+
+    
+    // Método para entrar en un nuevo scope
+    public void enterScope(String scopeName) {
+        currentScope = scopeName;
+        if (!SymbolTable.containsKey(currentScope)) {
+            SymbolTable.put(currentScope, new ArrayList<>());
+        }
+        System.out.println("Entrando al scope: " + currentScope);
+    }
+    
+    // Método para salir del scope actual
+    public void exitScope() {
+        System.out.println("Saliendo del scope: " + currentScope);
+        currentScope = "global";
+    }
+    
+    // Método para generar un scope único para bloques anónimos
+    public String generateUniqueScope() {
+        return currentScope + "_block_" + (++scopeCounter);
+    }
+    
+    // Método para imprimir la tabla de símbolos (debug)
+    public void printSymbolTable() {
+        System.out.println("\n=== TABLA DE SÍMBOLOS ===");
+        for (String scope : SymbolTable.keySet()) {
+            System.out.println("Scope: " + scope);
+            for (String symbol : SymbolTable.get(scope)) {
+                System.out.println("  " + symbol);
+            }
+        }
+        System.out.println("========================\n");
+    }
+
+    
+    // Método para reportar errores
+    public void report_error(String message, Object info) {
+        StringBuilder errorMessage = new StringBuilder();
+        int line = 0;
+        int column = 0;
+        
+        if (info instanceof java_cup.runtime.Symbol) {
+            java_cup.runtime.Symbol s = (java_cup.runtime.Symbol) info;
+            if (s.left >= 0) {
+                line = s.left + 1;
+                if (s.right >= 0) {
+                    column = s.right + 1;
+                }
+            }
+        }
+        
+        // Usar el ErrorHandler si está disponible
+        if (errorHandler != null) {
+            errorHandler.reportError(line, column, message, "SINTÁCTICO");
+        } else {
+            // Fallback al comportamiento original
+            errorMessage.append("Error sintáctico: ");
+            if (line > 0) {
+                errorMessage.append("línea " + line);
+                if (column > 0) {
+                    errorMessage.append(", columna " + column);
+                }
+            }
+            errorMessage.append(": " + message);
+            //System.err.println(errorMessage.toString());
+        }
+        
+        errorCount++;
+    }
+
+     // Método para reportar errores
+    public void report_SemanticError(String message, Object info) {
+        StringBuilder errorMessage = new StringBuilder();
+        int line = 0;
+        int column = 0;
+        
+        if (info instanceof java_cup.runtime.Symbol) {
+            java_cup.runtime.Symbol s = (java_cup.runtime.Symbol) info;
+            if (s.left >= 0) {
+                line = s.left + 1;
+                if (s.right >= 0) {
+                    column = s.right + 1;
+                }
+            }
+        }
+        
+        // Usar el ErrorHandler si está disponible
+        if (errorHandler != null) {
+            errorHandler.reportError(line, column, message, "SEMANTICO");
+        } else {
+            // Fallback al comportamiento original
+            errorMessage.append("Error semantico: ");
+            if (line > 0) {
+                errorMessage.append("línea " + line);
+                if (column > 0) {
+                    errorMessage.append(", columna " + column);
+                }
+            }
+            errorMessage.append(": " + message);
+            //System.err.println(errorMessage.toString());
+        }
+        
+        errorCount++;
+    }
+
+    // Método para guardar el código intermedio en un archivo
+    public void guardarCodigoIntermedio() {
+        try {
+            // Ruta relativa desde donde se ejecuta el parser
+            String ruta = "src/main/java/org/example/ParserLexer/resources";
+            java.io.File dir = new java.io.File(ruta);
+            if (!dir.exists()) dir.mkdirs();
+            java.io.File file = new java.io.File(dir, "codigo3D");
+            java.io.PrintWriter writer = new java.io.PrintWriter(file, "UTF-8");
+            for (String linea : codigoIntermedio) {
+                writer.println(linea);
+            }
+            writer.close();
+            System.out.println("Código intermedio guardado en: " + file.getAbsolutePath());
+        } catch (Exception e) {
+            System.err.println("Error al guardar el código intermedio: " + e.getMessage());
+        }
+    }
+        
+    // Método para recuperación de errores
+    public void syntax_error(Symbol cur_token) {
+        String tokenName = symbl_name_from_id(cur_token.sym);
+        String tokenValue = (cur_token.value != null) ? cur_token.value.toString() : "Token sin valor asignado";
+        
+        report_error("Error cerca de " + tokenName + " '" + tokenValue + "' ", cur_token);
+        
+        // Si hay un ErrorHandler y está en pánico, detener el análisis
+        if (errorHandler != null && errorHandler.isInPanicMode() && !errorHandler.shouldContinue()) {
+            throw new RuntimeException("Análisis sintáctico abortado en modo pánico");
+        }
+    }
+    
+    // Método para errores irrecuperables
+    public void unrecovered_syntax_error(Symbol cur_token) throws java.lang.Exception {
+        // Entrar en modo pánico si hay un ErrorHandler
+        if (errorHandler != null) {
+            errorHandler.enterPanicMode();
+            report_error("Error sintáctico fatal. Compilación abortada", cur_token);
+        } else {
+            report_error("Error sintáctico fatal. Compilación abortada", cur_token);
+        }
+        
+        throw new java.lang.Exception("Error sintáctico irrecuperable");
+    }
+    
+    public String getTipoFuncion(String nombreFuncion) {
+        for (Map.Entry<String, ArrayList<String>> entry : SymbolTable.entrySet()) {
+            for (String simbolo : entry.getValue()) {
+                if (simbolo.startsWith(nombreFuncion + ":function(")) {
+                    int indiceFlecha = simbolo.indexOf(")->");
+                    if (indiceFlecha != -1) {
+                        return simbolo.substring(indiceFlecha + 3);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+    public String symbl_name_from_id(int id) {
+        return (id >= 0 && id < sym.terminalNames.length) ? 
+               sym.terminalNames[id] : "UNKNOWN_TOKEN";
+    }
+
+    @SuppressWarnings("deprecation")
+    public parser(BasicLexerCup lex){
+        this.lex = lex;
+        this.symbolFactory = new DefaultSymbolFactory();
+        
+        // Si el lexer tiene un ErrorHandler, lo usamos
+        if (lex != null) {
+            try {
+                // Usamos reflection para obtener el errorHandler del lexer
+                java.lang.reflect.Field f = lex.getClass().getDeclaredField("errorHandler");
+                f.setAccessible(true);
+                Object handler = f.get(lex);
+                if (handler instanceof ErrorHandler) {
+                    this.errorHandler = (ErrorHandler) handler;
+                    System.out.println("ErrorHandler conectado desde lexer a parser");
+                }
+            } catch (Exception e) {
+                System.err.println("No se pudo obtener ErrorHandler del lexer: " + e.getMessage());
+            }
+        }
+    }
+    // Contadores para etiquetas únicas en el código intermedio
+    int asigCounter = 0;
+    int ifCounter = 0;
+    int forCounter = 0;
+    int whileCounter = 0;
+    int doWhileCounter = 0;
+    int switchCounter = 0;
+    int caseCounter = 0;
+    int funcCounter = 0;
+    int llamadaCounter = 0;
+    int lecturaCounter = 0;
+    int escrituraCounter = 0;
+    int declaracionCounter = 0;
+    int temporalCounter = 0;
+
+    //Variables globales para etiquetas y expresiones
+    String exprSwitchActual = null; // Guarda la expresión actual del switch -
+    String parser_etiquetaIf = null;
+    String parser_etiquetaElif = null;
+    String parser_etiquetaElse = null;
+    String etiquetaFuncionActual = null;
+    String etiquetaIfActual = null;
+    String etiquetaElifActual = null;
+    String etiquetaElseActual = null;
+    String etiquetaForActual = null;
+    String etiquetaDoWhileActual = null;
+    String etiquetaSwitchActual = null;
+    String etiquetaCaseActual = null;
+    String etiquetaReturnActual = null;
+:}
+
+init with {: :};
+
+scan with {: return lex.next_token(); :};
+
+/* Terminales*/
+terminal IF, ELIF, ELSE, DO, WHILE, FOR, SWITCH, CASE, BREAK, DEFAULT;
+terminal RETURN, LEER, IMPRIMIR, GLOBAL, FUNCTION, MAIN;
+terminal ARRX, MATRX,STRUCT,PARAM,IN,PUNTO,VOID;
+terminal STRING_LITERAL, CHAR_LITERAL, INTEGER_T, INTEGER_LITERAL, IDENTIFIER, FLOAT_T, CHAR_T, STRING_T, BOOL, FALSE, TRUE;
+terminal MENOR, MAYOR, MENORIGUAL, MAYORIGUAL, DIFERENTE, CONJUNCION, DISYUNCION, NEGACION, COMPARACION, ASIGNA;
+terminal SUMA, RESTA, MULTIPLICA, DIVIDE, MODULO, POTENCIA, INCREMENTO, DECREMENTO;
+terminal COMA, DOSPUNTOS, ESH_IZ, EZH_DE, PIPE, FINLINEA, INIT_COMMENT, END_COMMENT, INIT_BLOC, END_BLOC;
+terminal BRACEDER, BRACEIZQ;
+terminal FLOAT_LITERAL;
+
+non terminal programa, declaraciones, declaracion, tipo_dato, funcion_main, bloque, sentencias, sentencia;
+non terminal exprArit, exprLog, exprRel, factor, exprPrin, termino;
+non terminal operadorLog, operadorRel, operadorArit, operandoUnario;
+non terminal accesoArreglo, lista_parametros, parametro, lista_expresiones;
+non terminal estructura_control, init_for, default_case, if_stmt, elif_list, else_stmt, do_while;
+non terminal for_stmt, switch_stmt, case_list, case_item, case_value, declaracion_init, end_for;
+non terminal declaracion_var,declaracion_global, asignacion, llamada_funcion, retorno, lectura, escritura, funcion;
+non terminal signo_unario, comentario;
+
+/* Precedencias */
+precedence left DISYUNCION;
+precedence left CONJUNCION;
+precedence left NEGACION;
+precedence nonassoc MAYOR, MENOR, MAYORIGUAL, MENORIGUAL, COMPARACION, DIFERENTE;
+precedence left SUMA, RESTA;
+precedence left MULTIPLICA, DIVIDE, MODULO;
+precedence right POTENCIA;
+precedence right INCREMENTO, DECREMENTO;
+
+/* Producción inicial */
+start with programa;
+
+/* Programa */
+
+programa ::= declaraciones:d 
+            {: 
+                RESULT = "programa";
+                System.out.println("✅ Programa parseado correctamente");
+
+                printSymbolTable();
+
+                System.out.println("=== CÓDIGO INTERMEDIO ===\n");
+                for (String line : codigoIntermedio) {
+                    System.out.println(line);
+                }
+                System.out.println("\n=========================\n");
+
+                // Guardar código intermedio en archivo
+                guardarCodigoIntermedio();
+
+                // Generar y guardar el código MIPS
+                String codigoIntermedioDir = "src/main/java/org/example/ParserLexer/resources/codigo3D";
+                GeneracionDestino.codigoDestino generador = new GeneracionDestino.codigoDestino(
+                    codigoIntermedioDir,
+                    tiposCI,
+                    SymbolTable
+                );
+
+                String mips = generador.generarMIPS(); // También guarda automáticamente .s
+                //System.out.println("=== CÓDIGO MIPS GENERADO ===\n");
+                //System.out.println(mips);
+            :};
+
+/* Declaraciones */
+declaraciones ::= declaraciones:d declaracion:dec 
+                {: RESULT = "declaraciones"; :}
+                | /* vacío */
+                {: RESULT = "declaraciones_vacias"; :};
+
+declaracion ::= declaracion_var:dv FINLINEA
+              {: RESULT = dv; :}
+              | declaracion_global:dg 
+              {: RESULT = dg; :}
+              | funcion:f
+              {: RESULT = f; :}
+              | comentario:c
+              {: RESULT = c; :}
+              | funcion_main:fm
+              {: RESULT = fm; :};
+              
+/* Comentarios - Simplificado para evitar conflictos */
+comentario ::= INIT_COMMENT END_COMMENT
+             {: RESULT = "comentario"; :};
+
+/* Tipos de datos */
+tipo_dato ::= INTEGER_T 
+            {: RESULT = "int"; :}
+            | FLOAT_T 
+            {: RESULT = "float"; :}
+            | CHAR_T 
+            {: RESULT = "char"; :}
+            | STRING_T 
+            {: RESULT = "string"; :}
+            | BOOL 
+            {: RESULT = "bool"; :}
+            | ARRX tipo_dato:t 
+            {: RESULT = "array_" + t; :}
+            | MATRX tipo_dato:t
+            {: RESULT = "matrix_" + t; :};
+
+/* Funciones */
+
+funcion ::= FUNCTION tipo_dato:tipo IDENTIFIER:nombre ESH_IZ 
+           {: 
+               tipoStr = (tipo != null) ? tipo.toString() : "void";
+               String nombreStr = (nombre != null) ? nombre.toString() : "null";
+               if (nombre == null) {
+                   report_error("Identificador nulo en declaración de función", cur_token);
+               }
+               tipoFuncionActual = tipoStr;
+               String oldScope = currentScope;
+               enterScope(nombreStr);
+               etiquetaFuncionActual = "funcion_";
+               codigoIntermedio.add("INICIO_" + etiquetaFuncionActual  + nombreStr + ":\n" + tipoStr + " " + nombreStr + "()");
+           :}
+           lista_parametros:params EZH_DE 
+           {:
+               ArrayList<String> paramList = new ArrayList<>();
+               String paramsStr = (params != null) ? params.toString() : "sin_parametros";
+               if (params != null && !paramsStr.equals("sin_parametros")) {
+                   String[] paramArray = paramsStr.split(",");
+                   for (String param : paramArray) {
+                       paramList.add(param.trim());
+                   }
+               }
+               currentScope = "global";
+               addFunctionToSymbolTable(
+                   (nombre != null) ? nombre.toString() : "null",
+                   tipoStr,
+                   paramList
+               );
+               String nombreStr = (nombre != null) ? nombre.toString() : "null";
+               codigoIntermedio.add("Parametros_" + etiquetaFuncionActual  + nombreStr + ": " + paramList);
+               parametrosPorFuncion.put(nombreStr, paramList);
+               currentScope = (nombre != null) ? nombre.toString() : "null";
+           :}
+           bloque:b
+           {:
+               tipoFuncionActual = null;
+               exitScope();
+               String nombreStr = (nombre != null) ? nombre.toString() : "null";
+               codigoIntermedio.add("FIN_" + etiquetaFuncionActual  + nombreStr + ":");
+               etiquetaFuncionActual = null;
+               RESULT = "funcion_" + nombreStr;
+           :};
+
+lista_parametros ::= lista_parametros:lista COMA parametro:param 
+                   {: 
+                       String listaStr = (lista != null) ? lista.toString() : "sin_parametros";
+                       if (listaStr.equals("sin_parametros") || listaStr.isEmpty()) {
+                           RESULT = param;
+                       } else {
+                           RESULT = listaStr + "," + param;
+                       }
+                   :}
+                   | parametro:param 
+                   {: RESULT = param; :}
+                   | /* vacío */
+                   {: RESULT = "sin_parametros"; :};
+
+parametro ::= tipo_dato:tipo IDENTIFIER:nombre
+            {:
+                // Agregar parámetro a la tabla de símbolos del scope actual
+                addToSymbolTable(nombre.toString(), tipo.toString());
+                RESULT = tipo + "_" + nombre;
+            :};
+
+funcion_main ::= MAIN ESH_IZ EZH_DE 
+               {:
+                   if (mainDefined) {
+                       report_SemanticError("Ya se ha definido una función 'main'. Solo se permite una.", cur_token);
+                   } else {
+                       mainDefined = true;
+                       enterScope("main");
+                       //Generación de código intermedio
+                       codigoIntermedio.add("INICIO_main: ");
+                   }
+               :}
+               bloque:b
+               {:
+                   exitScope();
+                   //Generación de código intermedio
+                   codigoIntermedio.add("FIN_main: ");
+                   RESULT = "main";
+               :};
+
+/* Bloques y sentencias */
+bloque ::= INIT_BLOC sentencias:s END_BLOC
+         {: RESULT = "bloque"; :};
+
+sentencias ::= sentencias:ss sentencia:s 
+             {: RESULT = "sentencias"; :}
+             | /* vacío */
+             {: RESULT = "sentencias_vacias"; :};
+
+sentencia ::= estructura_control:ec 
+            {: RESULT = ec; :}
+            | declaracion_var:dv FINLINEA 
+            {: RESULT = dv; :}
+            | asignacion:a FINLINEA 
+            {: RESULT = a; :}
+            | retorno:r FINLINEA 
+            {: RESULT = r; :}
+            | lectura:l FINLINEA 
+            {: RESULT = l; :}
+            | escritura:e FINLINEA 
+            {: RESULT = e; :}
+            | BREAK FINLINEA 
+            {: RESULT = "break"; :}
+            | llamada_funcion:lf FINLINEA
+            {: RESULT = lf; :}
+            | comentario:c
+            {: RESULT = c; :}
+            | error {:
+                  report_error("Error al realizar una sentencia", cur_token);
+                 :};
+
+/* Estructuras de control */
+estructura_control ::= if_stmt:i 
+                     {: RESULT = i; :}
+                     | do_while:dw 
+                     {: RESULT = dw; :}
+                     | for_stmt:fs 
+                     {: RESULT = fs; :}
+                     | switch_stmt:ss
+                     {: RESULT = ss; :};
+
+if_stmt ::= IF ESH_IZ exprPrin:cond EZH_DE 
+          {: 
+              String type = tiposCI.getOrDefault(cond.toString(), "desconocido");
+              if (cond == null) {
+                  report_SemanticError("Condición nula en if", cur_token);
+                  RESULT = "if_error";
+              } else {
+                    if (!type.equals("bool")) {
+                        report_SemanticError("La condición del 'if' debe ser de tipo 'expr_rel' (bool), no '" + type + "'", cur_token);
+                        RESULT = "if_error";
+                    }
+                  String newScope = generateUniqueScope();
+                  enterScope(newScope);
+                  etiquetaIfActual = "if_" + (++ifCounter);
+                  codigoIntermedio.add("INICIO_" + etiquetaIfActual + ":\nif (" + cond + ") goto " + etiquetaIfActual + "_true;");
+                  codigoIntermedio.add("goto FIN_" + etiquetaIfActual + "_bloque;\n");
+                  codigoIntermedio.add( etiquetaIfActual + "_true:");
+              }
+          :}
+          bloque:b 
+          {:
+            codigoIntermedio.add("goto FIN_" + etiquetaIfActual + ";\n");
+            codigoIntermedio.add("FIN_" + etiquetaIfActual + "_bloque:");
+          :}
+          elif_list:el else_stmt:es
+          {:
+              exitScope();
+              codigoIntermedio.add("FIN_" + etiquetaIfActual + ":");
+              etiquetaIfActual = null;
+              RESULT = "if";
+          :};
+
+elif_list ::= ELIF ESH_IZ exprPrin:cond EZH_DE 
+            {:
+                if (cond == null) {
+                    report_SemanticError("Condición nula en elif", cur_token);
+                    RESULT = "elif_error";
+                } else  {
+                    String type = tiposCI.getOrDefault(cond.toString(), "desconocido");
+                     if (!type.equals("bool")) {
+                        report_SemanticError("La condición del 'elif' debe ser de tipo 'expr_rel' (bool), no '" + type + "'", cur_token);
+                        RESULT = "elif_error";
+                    }
+                    String newScope = generateUniqueScope();
+                    enterScope(newScope);
+                    etiquetaElifActual = "elif_" + (++ifCounter);
+                    codigoIntermedio.add("INICIO_" + etiquetaElifActual + ":\nif (" + cond + ") goto " + etiquetaElifActual + "_true;");
+                    codigoIntermedio.add("goto FIN_" + etiquetaElifActual + ";\n");
+                    codigoIntermedio.add( etiquetaElifActual + "_true:");
+                }
+            :}
+            bloque:b 
+            {:
+                exitScope();
+                codigoIntermedio.add("goto FIN_" + etiquetaIfActual + ";\n");
+                codigoIntermedio.add("FIN_" + etiquetaElifActual + ":");
+                etiquetaElifActual = null;
+            :}
+            elif_list:el 
+            {: RESULT = "elif_list"; :}
+            | /* vacío */
+            {: RESULT = "sin_elif"; :};
+
+else_stmt ::= ELSE 
+            {:
+                String newScope = generateUniqueScope();
+                enterScope(newScope);
+                etiquetaElseActual = "else_" + (++ifCounter);
+                codigoIntermedio.add("INICIO_" + etiquetaElseActual + ":");
+            :}
+            bloque:b
+            {:
+                exitScope();
+                codigoIntermedio.add("FIN_" + etiquetaElseActual + ":");
+                codigoIntermedio.add("goto FIN_" + etiquetaIfActual + ";\n");
+                etiquetaElseActual = null;
+                RESULT = "else";
+            :}
+            | /* vacío */
+            {: RESULT = "sin_else"; :};
+ 
+do_while ::= DO 
+           {:
+               String newScope = generateUniqueScope();
+               enterScope(newScope);
+               etiquetaDoWhileActual = "do_while_" + (++doWhileCounter);
+               codigoIntermedio.add("INICIO_" + etiquetaDoWhileActual + ":");
+           :}
+           bloque:b WHILE ESH_IZ exprPrin:cond EZH_DE FINLINEA
+           {:
+                String type = tiposCI.getOrDefault(cond.toString(), "desconocido");
+               if (cond == null) {
+                   report_SemanticError("Condición nula en do-while", cur_token);
+                   exitScope();
+                   etiquetaDoWhileActual = null;
+                   RESULT = "while_error";
+               } else if (!type.equals("bool")) {
+                   report_SemanticError("La condición del 'while' debe ser de tipo 'expr_rel' (bool), no '" + type + "'", cur_token);
+                   exitScope();
+                   etiquetaDoWhileActual = null;
+                   RESULT = "while_error";
+               } else {
+                   exitScope();
+                   codigoIntermedio.add("CONDICION_do_while_:\nif (" + resultExpr + ") goto INICIO_" + etiquetaDoWhileActual + ";");
+                   codigoIntermedio.add("FIN_" + etiquetaDoWhileActual + ":");
+                   etiquetaDoWhileActual = null;
+                   RESULT = "do_while";
+               }
+           :};
+
+for_stmt ::= FOR ESH_IZ init_for:init 
+            {:
+                etiquetaForActual = "for_" + (++forCounter);
+                codigoIntermedio.add("INICIO_" + etiquetaForActual + ":");
+            :}
+            FINLINEA exprPrin:cond 
+            {:
+                condFor = resultExpr;
+            :}
+                
+                FINLINEA end_for:inc EZH_DE 
+           {:
+               if (cond == null) {
+                   report_SemanticError("Condición nula en for", cur_token);
+                   RESULT = "for_error";
+               } else {
+                   String newScope = generateUniqueScope();
+                   enterScope(newScope);
+                   String type = tiposCI.getOrDefault(cond.toString(), "desconocido");
+                   if (!type.equals("int") && !type.equals("bool")) {
+                        report_SemanticError("La segunda condición del 'for' debe ser de tipo 'expr_rel' (bool), no '" + type + "'", cur_token);
+                        RESULT = "for_error";
+                   }
+                   codigoIntermedio.add("if (" + condFor + ") goto " + etiquetaForActual + "_true;");
+                   codigoIntermedio.add("goto FIN_" + etiquetaForActual + ";\n");
+                   codigoIntermedio.add( etiquetaForActual + "_true:");
+               }
+           :}
+           bloque:b
+           {:
+               exitScope();
+               codigoIntermedio.add("INCREMENTO_for_ (" + resultExpr + ")");
+               codigoIntermedio.add("goto INICIO_" + etiquetaForActual + ";\n");
+               codigoIntermedio.add("FIN_" + etiquetaForActual + ":\n");
+               etiquetaForActual = null;
+               RESULT = "for";
+           :};
+
+init_for ::= declaracion_var:dv 
+           {: RESULT = dv; :}
+           | asignacion:a
+           {: RESULT = a; :};
+
+end_for ::= exprPrin:ep
+           {: RESULT = ep; :}
+           | asignacion:a
+           {: RESULT = a; :};
+
+switch_stmt ::= SWITCH ESH_IZ exprPrin:expr EZH_DE INIT_BLOC 
+              {:
+                  String exprStr = tiposCI.getOrDefault(expr.toString(), "desconocido");
+                  if (expr == null) {
+                      report_error("Expresión nula en switch", cur_token);
+                      RESULT = "error";
+                  } else {
+                      tipoSwitchActual = exprStr;
+                      exprSwitchActual = expr.toString();
+                      String newScope = generateUniqueScope();
+                      enterScope(newScope);
+                      caseValues = new HashSet<>();
+                      etiquetaSwitchActual = "switch_" + (++switchCounter);
+                      codigoIntermedio.add("INICIO_" + etiquetaSwitchActual + ": switch (" + expr.toString() + "):");
+                  }
+              :}
+              case_list:cl default_case:dc END_BLOC
+              {:
+                  tipoSwitchActual = null;
+                  caseValues = null;
+                  exitScope();
+                  codigoIntermedio.add("FIN_switch_" + etiquetaSwitchActual + ":"); 
+                  etiquetaSwitchActual = null;
+                  RESULT = "switch";
+              :};
+
+case_list ::= case_list:cl case_item:ci
+            {: RESULT = "case_list"; :}
+            | /* vacío */
+            {: RESULT = "sin_cases"; :};
+
+case_item ::= CASE case_value:cv DOSPUNTOS sentencias:s
+            {:
+                if (cv == null) {
+                    report_error("Valor nulo en case", cur_token);
+                    RESULT = "case_error";
+                } else {
+                    String valor = tiposCI.getOrDefault(cv.toString(), "desconocido");
+                    String tipoActual = tipoSwitchActual != null ? tipoSwitchActual.toString() : "";
+                    if (!tipoActual.equals(valor)) {
+                        report_SemanticError("El valor '" + valor + "' no es compatible con el tipo del 'switch' (" + tipoSwitchActual + ")", cur_token);
+                    }
+                    if (caseValues.contains(valor)) {
+                        report_SemanticError("Valor de 'case' duplicado: " + valor, cur_token);
+                    } else {
+                        caseValues.add(valor);
+                    }
+                    etiquetaCaseActual = "case_" + (++caseCounter);
+                    codigoIntermedio.add("INIT_CASE_" + etiquetaCaseActual + ": if (" + exprSwitchActual + " == " + cv + ") goto " + etiquetaCaseActual + "_true;");
+                    codigoIntermedio.add("FIN_CASE_" + etiquetaCaseActual + ":");
+                    etiquetaCaseActual = null;
+                    RESULT = "case";
+                }
+            :};
+
+case_value ::= factor:f 
+            {: RESULT = f; :};
+
+default_case ::= DEFAULT DOSPUNTOS sentencias:s
+               {: RESULT = "default"; :}
+               | /* vacío */
+               {: RESULT = "sin_default"; :};
+
+/* Variables y asignaciones */
+declaracion_var ::= tipo_dato:tipo IDENTIFIER:nombre declaracion_init:init
+                  {:
+                    if (tipo == null) {
+                        report_error("Tipo nulo en declaración de variable", cur_token);
+                        RESULT = "declaracion_error";
+                    } else if (nombre == null) {
+                        report_error("Identificador nulo en declaración de variable", cur_token);
+                        RESULT = "declaracion_error";
+                    } else if (init == null) {
+                        report_error("Inicialización nula en declaración de variable", cur_token);
+                        RESULT = "declaracion_error";
+                    } else {
+                        String tipoDeclarado = tipo.toString();
+                        String tipoInicializado = tiposCI.getOrDefault(init.toString(), "desconocido");
+                        if (tipoInicializado != "desconocido"){
+                            if (tipoInicializado != null && !tipoCompatible(tipoDeclarado, tipoInicializado)) {
+                                report_SemanticError("No se puede asignar un valor de tipo '" + tipoInicializado + "' a una variable de tipo '" + tipoDeclarado + "'", cur_token);
+                            }
+                        }
+
+                        addToSymbolTable(nombre.toString(), tipoDeclarado);
+                        etiquetaReturnActual = "declaracion_" + (++asigCounter);
+                        codigoIntermedio.add(etiquetaReturnActual + ": " + nombre.toString() + " = " + (init != null ? init.toString() : "0") + ";");
+                        etiquetaReturnActual = null;
+                        RESULT = "declaracion_" + nombre;
+                    }
+                  :}
+                  | tipo_dato:tipo IDENTIFIER:nombre PIPE exprPrin:dim1 PIPE exprPrin:dim2 PIPE
+                  {:
+                      if (tipo == null) {
+                          report_error("Tipo nulo en declaración de arreglo", cur_token);
+                          RESULT = "declaracion_array_error";
+                      } else if (nombre == null) {
+                          report_error("Identificador nulo en declaración de arreglo", cur_token);
+                          RESULT = "declaracion_array_error";
+                      } else if (dim1 == null || dim2 == null) {
+                          report_error("Dimensión nula en declaración de arreglo", cur_token);
+                          RESULT = "declaracion_array_error";
+                      } else {
+                        String type1 = tiposCI.getOrDefault(dim1.toString(), "desconocido");
+                        String type2 = tiposCI.getOrDefault(dim2.toString(), "desconocido");
+                          if (!type1.equals("int") || !type2.equals("int")) {
+                              report_SemanticError("Las dimensiones del arreglo deben ser de tipo 'int'. Se encontró: [" 
+                                                  + type1 + ", " + type2 + "]", cur_token);
+                          }
+                          String arrayType = tipo + "[" + type1 + "][" + type2 + "]";
+                          addToSymbolTable(nombre.toString(), arrayType);
+                          arrayType = tipo + "[" + dim1 + "][" + dim2 + "]";
+                          etiquetaReturnActual = "declaracion_array_" + (++asigCounter);
+                          codigoIntermedio.add(etiquetaReturnActual + ": " + nombre.toString() + " = new " + arrayType + ";");
+                          etiquetaReturnActual = null;
+                          RESULT = "declaracion_array_" + nombre;
+                      }
+                  :}
+                  | tipo_dato:tipo IDENTIFIER:nombre PIPE exprPrin:dim1 PIPE
+                  {:
+                      if (tipo == null) {
+                          report_error("Tipo nulo en declaración de arreglo", cur_token);
+                          RESULT = "declaracion_array_error";
+                      } else if (nombre == null) {
+                          report_error("Identificador nulo en declaración de arreglo", cur_token);
+                          RESULT = "declaracion_array_error";
+                      } else if (dim1 == null) {
+                          report_error("Dimensión nula en declaración de arreglo", cur_token);
+                          RESULT = "declaracion_array_error";
+                      } else {
+                        String type1 = tiposCI.getOrDefault(dim1.toString(), "desconocido");
+                          if (!type1.equals("int")) {
+                              report_SemanticError("Las dimensiones del arreglo deben ser de tipo 'int'. Se encontró: [" 
+                                                  + type1 + "]", cur_token);
+                          }
+                          String arrayType = tipo + "[" + type1 + "]";
+                          addToSymbolTable(nombre.toString(), arrayType);
+                          arrayType = tipo + "[" + dim1 + "]";
+                          etiquetaReturnActual = "declaracion_array_" + (++asigCounter);
+                          codigoIntermedio.add(etiquetaReturnActual + ": " + nombre.toString() + " = new " + arrayType + ";");
+                          etiquetaReturnActual = null;
+                          RESULT = "declaracion_array_" + nombre;
+                      }
+                  :};
+
+                  
+declaracion_global ::= GLOBAL tipo_dato:tipo IDENTIFIER:nombre declaracion_init:init FINLINEA
+                  {:
+                    String tipoDeclarado = tipo.toString();
+                    String tipoInicializado = tiposCI.getOrDefault(init.toString(), "desconocido");
+                    
+                    if (tipoInicializado != "desconocido"){
+                        if (tipoInicializado != null && !tipoCompatible(tipoDeclarado, tipoInicializado)) {
+                            report_SemanticError("No se puede asignar un valor de tipo '" + tipoInicializado + "' a una variable de tipo '" + tipoDeclarado + "'", cur_token);
+                        }
+                    }
+
+                    String oldScope = currentScope;
+                    currentScope = "global";
+                    addToSymbolTable(nombre.toString(), tipoDeclarado);
+                    currentScope = oldScope;
+                    etiquetaReturnActual = "declaracion_global_" + (++asigCounter);
+                    codigoIntermedio.add(etiquetaReturnActual + ": " + nombre.toString() + " = " + (init != null ? init.toString() : "0") + ";");
+                    etiquetaReturnActual = null;
+                    RESULT = "declaracion_global_" + nombre;
+                :};
+
+declaracion_init ::= ASIGNA exprPrin:expr
+                   {: RESULT = expr; :}
+                   | /* vacío */
+                   {: RESULT = "sin_inicializar"; :};
+
+asignacion ::= IDENTIFIER:nombre ASIGNA exprPrin:expr 
+             {:
+                 if (!variableExists(nombre.toString())) {
+                     report_SemanticError("Variable '" + nombre + "' no ha sido declarada", cur_token);
+                 } else {
+                     String tipoVar = getTipoVariable(nombre.toString());
+                     String tipoExpr = tiposCI.getOrDefault(expr.toString(), "desconocido");
+                    if (tipoExpr.equals("error")){
+                        String tipoCompleto = getTipoVariable(nombreArray);
+                        String tipoBase = quitarDimensiones(tipoCompleto);
+                        tipoExpr = tipoBase;
+                    }
+                     System.out.println("Temp =====================> " + expr + "Valor =======> " + tipoExpr );
+                    if(tipoExpr!= "desconocido"){
+                        if (!tipoCompatible(tipoVar, tipoExpr)) {
+                            report_SemanticError("No se puede asignar un valor de tipo '" + tipoExpr +
+                                        "' a una variable de tipo '" + tipoVar + "'", cur_token);
+                        }
+                    }
+                 }
+                 etiquetaReturnActual = "asig_" + (++asigCounter);
+                 codigoIntermedio.add(etiquetaReturnActual + ": " + nombre + " = " + expr.toString() + ";");
+                 etiquetaReturnActual = null;
+                 RESULT = expr;
+             :}
+             | accesoArreglo:acc ASIGNA exprPrin:expr
+             {:
+                String tipoCompleto = getTipoVariable(nombreArray);
+                String tipoBase = quitarDimensiones(tipoCompleto);
+                String type = tiposCI.getOrDefault(expr.toString(), "null");
+                //System.out.println("Temp =====================> " + expr + "Valor =======> " + tipoCompleto );
+                if (!tipoCompatible(tipoBase, type)) {
+                    report_SemanticError("No se puede asignar un valor de tipo '" + type +
+                                        "' al elemento del arreglo de tipo '" + tipoBase + "'", cur_token);
+                }
+            
+                 etiquetaReturnActual = "asig_array_" + (++asigCounter);
+                 codigoIntermedio.add(etiquetaReturnActual + ": " + acc.toString() + " = " + expr.toString() + ";");
+                 etiquetaReturnActual = null;
+                 RESULT = expr;
+             :};
+
+/* Expresiones */
+exprPrin ::= exprLog:el
+           {: RESULT = el; :}
+           | error
+           {:
+               report_error("Error al generar la expresion", cur_token);
+               RESULT = "error";
+           :};
+
+exprLog ::= exprLog:el operadorLog:op exprRel:er 
+          {:
+              String tipo1 = tiposCI.getOrDefault(el.toString(), "null");
+              String tipo2 = tiposCI.getOrDefault(er.toString(), "null");
+
+              if (!tipo1.equals("bool") && !tipo1.equals("true") && !tipo1.equals("false") || !tipo2.equals("bool") && !tipo2.equals("true") && !tipo2.equals("false")) {
+                  report_SemanticError("Las expresiones lógicas solo se pueden aplicar a tipos 'bool'. Se encontraron: '" + tipo1 + "' y '" + tipo2 + "'", cur_token);
+              }
+
+              String temp = "t" + (++temporalCounter);
+              codigoIntermedio.add(temp + " = " + el + " " + op + " " + er + ";");
+              tiposCI.put(temp, "bool");
+              resultExpr = temp;
+              RESULT = temp;
+          :}
+          | exprRel:er 
+          {:
+              RESULT = er;
+          :}
+          | NEGACION exprRel:er
+          {:
+              String tipo = tiposCI.getOrDefault(er.toString(), "desconocido");
+              if (!tipo.equals("bool") && !tipo.equals("true") && !tipo.equals("false")) {
+                  report_SemanticError("El operador '!' solo se aplica a expresiones booleanas. Se encontró: '" + tipo + "'", cur_token);
+              }
+
+              String temp = "t" + (++temporalCounter);
+              codigoIntermedio.add(temp + " = !" + er + ";");
+              tiposCI.put(temp, "bool");
+              RESULT = temp;
+          :};
+
+operadorLog ::= DISYUNCION 
+              {: RESULT = "||"; :}
+              | CONJUNCION
+              {: RESULT = "&&"; :};
+
+exprRel ::= exprArit:ea1 operadorRel:op exprArit:ea2 
+          {:
+              String tipo1 = tiposCI.getOrDefault(ea1.toString(), "null");
+              String tipo2 = tiposCI.getOrDefault(ea2.toString(), "null");
+
+              if (!tipo1.equals(tipo2)) {
+                  report_SemanticError("Tipos incompatibles en comparación relacional: '" + tipo1 + "' y '" + tipo2 + "'", cur_token);
+              } else if (!tipo1.equals("int") && !tipo1.equals("float") && !tipo1.equals("char")) {
+                  report_SemanticError("Operaciones relacionales solo válidas entre 'int', 'float' o 'char'. Se encontró: '" + tipo1 + "'", cur_token);
+              }
+
+              String temp = "t" + (++temporalCounter);
+              codigoIntermedio.add(temp + " = " + ea1 + " " + op + " " + ea2 + ";");
+              tiposCI.put(temp, "bool");  
+              resultExpr = temp;
+              RESULT = temp;
+          :}
+          | exprArit:ea
+          {: 
+              RESULT = ea; 
+          :};
+
+operadorRel ::= MAYOR 
+              {: RESULT = ">"; :}
+              | MENOR 
+              {: RESULT = "<"; :}
+              | MAYORIGUAL 
+              {: RESULT = ">="; :}
+              | MENORIGUAL 
+              {: RESULT = "<="; :}
+              | COMPARACION 
+              {: RESULT = "=="; :}
+              | DIFERENTE
+              {: RESULT = "!="; :};
+
+exprArit ::= exprArit:ea operadorArit:op termino:t 
+           {: 
+               String tipoIzq = tiposCI.getOrDefault(ea.toString(), "null");
+               String tipoDer = tiposCI.getOrDefault(t.toString(), "null");
+
+               if (!tipoIzq.equals(tipoDer)) {
+                   report_SemanticError("Tipos incompatibles en operación aritmética: '" + tipoIzq + "' y '" + tipoDer + "'", cur_token);
+               } else if (!tipoIzq.equals("int") && !tipoIzq.equals("float")) {
+                   report_SemanticError("Solo se permiten operaciones aritméticas entre 'int' o 'float'. Se encontró: '" + tipoIzq + "'", cur_token);
+               }
+               String temp = "t" + (++temporalCounter);
+               codigoIntermedio.add(temp + " = " + ea + " " + op + " " + t + ";");
+               tiposCI.put(temp, tipoIzq);
+               resultExpr = temp;
+               RESULT = temp; 
+           :}
+           | termino:t 
+           {: RESULT = t; :}
+           | operandoUnario:ou
+           {: RESULT = ou; :};
+
+termino ::= termino:t MULTIPLICA factor:f 
+          {:
+              String temp = "t" + (++temporalCounter);
+              codigoIntermedio.add(temp + " = " + t + " * " + f + ";");
+              RESULT = temp;
+          :}
+          | termino:t DIVIDE factor:f 
+          {:
+              String temp = "t" + (++temporalCounter);
+              codigoIntermedio.add(temp + " = " + t + " / " + f + ";");
+              RESULT = temp;
+          :}
+          | termino:t MODULO factor:f 
+          {:
+              String temp = "t" + (++temporalCounter);
+              codigoIntermedio.add(temp + " = " + t + " % " + f + ";");
+              RESULT = temp;
+          :}
+          | factor:f
+          {: RESULT = f; :};
+
+operadorArit ::= SUMA 
+               {: RESULT = "+"; :}
+               | RESTA 
+               {: RESULT = "-"; :}
+               | MULTIPLICA 
+               {: RESULT = "*"; :}
+               | DIVIDE 
+               {: RESULT = "/"; :}
+               | MODULO 
+               {: RESULT = "%"; :}
+               | POTENCIA
+               {: RESULT = "^"; :};
+
+operandoUnario ::= signo_unario:signo factor:f 
+                 {:
+                     String tipoFactor = tiposCI.getOrDefault(f.toString(), "desconocido");
+                     String temp = "t" + (++temporalCounter);
+
+                     if (signo.equals("-") || signo.equals("+")) {
+                         if (!tipoFactor.equals("int") && !tipoFactor.equals("float")) {
+                             report_SemanticError("El operador '" + signo + "' solo se puede aplicar a tipos numéricos. Se encontró: " + tipoFactor, cur_token);
+                         }
+                     } else if (signo.equals("!")) {
+                         if (!tipoFactor.equals("bool") && !tipoFactor.equals("true") && !tipoFactor.equals("false")) {
+                             report_SemanticError("El operador '!' solo se puede aplicar a booleanos. Se encontró: " + tipoFactor, cur_token);
+                         }
+                     }
+
+                     codigoIntermedio.add(temp + " = " + signo + f + ";");
+                     tiposCI.put(temp, tipoFactor);
+                     RESULT = temp;
+                 :}
+                 | INCREMENTO IDENTIFIER:nombre 
+                 {:
+                     if (!variableExists(nombre.toString())) {
+                         report_SemanticError("Variable '" + nombre + "' no ha sido declarada", cur_token);
+                     }
+
+                     String tipo = getTipoVariable(nombre.toString());
+                     if (!tipo.equals("int") && !tipo.equals("float")) {
+                         report_SemanticError("El operador '++' solo puede aplicarse a variables numéricas. Se encontró: " + tipo, cur_token);
+                     }
+
+                     etiquetaReturnActual = "incremento_" + (++asigCounter);
+                     codigoIntermedio.add(etiquetaReturnActual + ": " + nombre + " = " + nombre + " + 1;");
+                     tiposCI.put(nombre.toString(), tipo); // se mantiene el tipo
+                     etiquetaReturnActual = null;
+                     RESULT = nombre;
+                 :}
+                 | DECREMENTO IDENTIFIER:nombre
+                 {:
+                     if (!variableExists(nombre.toString())) {
+                         report_SemanticError("Variable '" + nombre + "' no ha sido declarada", cur_token);
+                     }
+
+                     String tipo = getTipoVariable(nombre.toString());
+                     if (!tipo.equals("int") && !tipo.equals("float")) {
+                         report_SemanticError("El operador '--' solo puede aplicarse a variables numéricas. Se encontró: " + tipo, cur_token);
+                     }
+
+                     etiquetaReturnActual = "decremento_" + (++asigCounter);
+                     codigoIntermedio.add(etiquetaReturnActual + ": " + nombre + " = " + nombre + " - 1;");
+                     tiposCI.put(nombre.toString(), tipo);
+                     etiquetaReturnActual = null;
+                     RESULT = nombre;
+                 :};
+
+signo_unario ::= SUMA 
+               {: RESULT = "+"; :}
+               | RESTA
+               {: RESULT = "-"; :};
+
+/* Acceso a arreglos */
+accesoArreglo ::= IDENTIFIER:nombre BRACEIZQ exprPrin:idx BRACEDER 
+                {:
+                    if (nombre == null || idx == null) {
+                        report_error("Acceso nulo a arreglo", cur_token);
+                        RESULT = "errorArreglo";
+                    } else {
+                        if (!variableExists(nombre.toString())) {
+                            report_SemanticError("Arreglo '" + nombre + "' no ha sido declarada", cur_token);
+                        } else {
+                            String type = tiposCI.getOrDefault(idx.toString(), "desconocido");
+                            if (!type.equals("int")) {
+                                report_SemanticError("El índice del arreglo debe ser de tipo 'int', no '" + type + "'", cur_token);
+                            }
+                        }
+                        //String temp = "t" + (++temporalCounter);
+                        String arry = nombre.toString() + "[" + idx + "]";
+                        nombreArray = nombre.toString();
+                        //codigoIntermedio.add(temp + " = " + nombre.toString() + "[" + idx + "];");
+                        RESULT = arry;
+                    }
+                :}
+                | IDENTIFIER:nombre BRACEIZQ exprPrin:idx1 COMA exprPrin:idx2 BRACEDER
+                {:
+                    if (nombre == null || idx1 == null || idx2 == null) {
+                        report_error("Acceso nulo a matriz", cur_token);
+                        RESULT = "errorArreglo";
+                    } else {
+                        if (!variableExists(nombre.toString())) {
+                            report_SemanticError("Arreglo '" + nombre + "' no ha sido declarada", cur_token);
+                        } else {
+                            String type1 = tiposCI.getOrDefault(idx1.toString(), "desconocido");
+                            String type2 = tiposCI.getOrDefault(idx2.toString(), "desconocido");
+                            if (!type1.equals("int") || !type2.equals("int")) {
+                                report_SemanticError("Los índices de la matriz deben ser de tipo 'int'. Se encontró: [" 
+                                                      + type1 + ", " + type2 + "]", cur_token);
+                            }
+                        }
+                        //String temp = "t" + (++temporalCounter);
+                        String arry = nombre.toString() + "[" + idx1 + "][" + idx2 + "]";
+                        //codigoIntermedio.add(temp + " = " + nombre.toString() + "[" + idx1 + "][" + idx2 + "];");
+                        nombreArray = nombre.toString();
+                        RESULT = arry;
+                    }
+                :};
+
+/* Llamadas a funciones */
+llamada_funcion ::= IDENTIFIER:nombre ESH_IZ lista_expresiones:args EZH_DE
+                  {:
+                    if (nombre == null || args == null) {
+                        report_error("Llamada a función con identificador o argumentos nulos", cur_token);
+                        RESULT = "error";
+                    } else {
+                        String nombreFuncion = nombre.toString();
+                        
+                        if (!functionExists(nombreFuncion)) {
+                            if(nombreFuncion.equals("print")){
+                            }else{
+                                report_SemanticError("Función '" + nombreFuncion + "' no ha sido declarada", cur_token);
+                            }
+                        } else {
+                            ArrayList<String> tiposEsperados = getTiposParametrosFuncion(nombreFuncion);
+                            ArrayList<String> tiposRecibidos = (ArrayList<String>) args;
+
+                            if (tiposEsperados.size() != tiposRecibidos.size()) {
+                                report_SemanticError("Cantidad de argumentos inválida para la función '" +
+                                    nombreFuncion + "'. Se esperaban " + tiposEsperados.size() +
+                                    " y se recibieron " + tiposRecibidos.size(), cur_token);
+                            } else {
+                                for (int i = 0; i < tiposEsperados.size(); i++) {
+                                    if (!tipoCompatible(tiposEsperados.get(i), tiposRecibidos.get(i))) {
+                                        report_SemanticError("Tipo de argumento inválido en la posición " + (i+1) +
+                                            " para la función '" + nombreFuncion + "'. Se esperaba '" +
+                                            tiposEsperados.get(i) + "' y se recibió '" + tiposRecibidos.get(i) + "'", cur_token);
+                                    }
+                                }
+                            }
+                        }
+                        String tipoFuncion = getTipoFuncion(nombreFuncion);
+                        if(!nombreFuncion.equals("print")){
+                            if (tipoFuncion == null) {
+                                report_SemanticError("Función '" + nombreFuncion + "' no tiene tipo de retorno definido", cur_token);
+                            }
+                        }
+                        String temp = "t" + (++temporalCounter);
+                        String etiqueta = "llamada_" + (++llamadaCounter);
+                        codigoIntermedio.add(etiqueta + ": " + temp + " = call " + nombreFuncion + "(" + listaGlobal.toString() + ");");
+                        listaGlobal.clear();
+                        RESULT = temp;
+                    }
+                :};
+
+lista_expresiones ::= lista_expresiones:le COMA exprPrin:ep 
+                    {:
+                        String type = tiposCI.getOrDefault(ep.toString(), "desconocido");
+                        List<String> lista = (List<String>) le;
+
+                        listaGlobal.add(ep.toString());
+
+                        lista.add(type);  
+                        RESULT = lista;
+                    :}
+                    | exprPrin:ep 
+                    {:
+                        String type = tiposCI.getOrDefault(ep.toString(), "desconocido");
+                        List<String> lista = new ArrayList<>();
+                        lista.add(type);
+                        
+                        listaGlobal.add(ep.toString());
+                        RESULT = lista;
+                    :}
+                    | /* vacío */
+                    {:
+                        RESULT = new ArrayList<String>();
+                    :};
+
+/* Retorno, lectura y escritura */
+retorno ::= RETURN exprPrin:valor 
+           {:
+           
+                String type = tiposCI.getOrDefault(valor.toString(), "null");
+               if (!type.equals(tipoFuncionActual)) {
+                   report_SemanticError("Tipo de retorno inválido. Se esperaba '" + tipoFuncionActual + "' pero se encontró '" + type + "'", cur_token);
+               }
+               etiquetaReturnActual = "return_" + (++funcCounter);
+               codigoIntermedio.add(etiquetaReturnActual + ": return " + valor.toString() + ";");
+               etiquetaReturnActual = null;
+               RESULT = "return_" + valor;
+           :};
+
+lectura ::= LEER ESH_IZ IDENTIFIER:nombre EZH_DE
+          {:
+              if (!variableExists(nombre.toString()) || functionExists(nombre.toString())) {
+                  report_SemanticError("Variable '" + nombre + "' no ha sido declarada", cur_token);
+              }
+              etiquetaReturnActual = "leer_" + (++asigCounter);
+              codigoIntermedio.add(etiquetaReturnActual + ": leer " + nombre.toString() + ";");
+              etiquetaReturnActual = null;
+              RESULT = "leer_" + nombre;
+          :};
+
+escritura ::= IMPRIMIR ESH_IZ exprPrin:expr EZH_DE
+            {: 
+                String type = tiposCI.getOrDefault(expr.toString(), "null");
+                if (!isTipoImprimible(type)) {
+                    report_SemanticError("Tipo '" + type + "' no se puede imprimir", cur_token);
+                    RESULT = "Fallo_imprimir" ;
+                }
+                etiquetaReturnActual = "imprimir_" + (++asigCounter);
+                codigoIntermedio.add(etiquetaReturnActual + ": imprimir " + expr.toString() + ";");
+                etiquetaReturnActual = null;
+                RESULT = "imprimir_" + expr;
+            :};
+
+/* Literales y valores */
+factor ::= INTEGER_LITERAL:il 
+         {:
+             String temp = "t" + (++temporalCounter);
+             codigoIntermedio.add(temp + " = " + il + ";");
+             tiposCI.put(temp.toString(),"int");
+             RESULT = temp;
+         :}
+         | FLOAT_LITERAL:fl 
+         {:
+             String temp = "t" + (++temporalCounter);
+             codigoIntermedio.add(temp + " = " + fl + ";");
+             tiposCI.put(temp.toString(),"float");
+             RESULT = temp;
+         :}
+         | CHAR_LITERAL:cl 
+         {:
+             String temp = "t" + (++temporalCounter);
+             codigoIntermedio.add(temp + " = " + "'" + cl + "'" + ";");
+             tiposCI.put(temp.toString(),"char");
+             RESULT = temp;
+         :}
+         | STRING_LITERAL:sl 
+         {:
+             String temp = "t" + (++temporalCounter);
+             codigoIntermedio.add(temp + " = " + "\"" + sl + "\"" + ";");
+             tiposCI.put(temp.toString(),"string");
+             RESULT = temp;
+         :}
+         | TRUE 
+         {:
+             String temp = "t" + (++temporalCounter);
+             codigoIntermedio.add(temp + " = true;");
+             tiposCI.put(temp.toString(),"bool");
+             RESULT = temp;
+         :}
+         | FALSE 
+         {:
+             String temp = "t" + (++temporalCounter);
+             codigoIntermedio.add(temp + " = false;");
+             tiposCI.put(temp.toString(),"bool");
+             RESULT = temp;
+         :}
+         | llamada_funcion:lf 
+         {:
+             // Se asume que llamada_funcion ya genera su código intermedio
+             RESULT = lf;
+         :}
+         | accesoArreglo:aa 
+         {:
+             String tipoCompleto = getTipoVariable(aa.toString());
+             String tipoBase = quitarDimensiones(tipoCompleto);
+             String temp = "t" + (++temporalCounter);
+             codigoIntermedio.add(temp + " = " + aa.toString() + ";");
+             tiposCI.put(temp.toString(),tipoBase);
+             RESULT = temp;
+         :}
+         | IDENTIFIER:nombre 
+         {:
+             if (!variableExists(nombre.toString())) {
+                 report_SemanticError("Variable '" + nombre + "' no ha sido declarada", cur_token);
+                 RESULT = "sin_inicializar";
+             } else {
+                 String temp = "t" + (++temporalCounter);
+                 codigoIntermedio.add(temp + " = " + nombre.toString() + ";");
+                 tiposCI.put(temp.toString(),getTipoVariable(nombre.toString()));
+                 RESULT = temp;
+             }
+         :}
+         | ESH_IZ exprPrin:ep EZH_DE
+         {:
+             RESULT = ep;
+         :};
+
