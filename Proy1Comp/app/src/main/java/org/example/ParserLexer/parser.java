@@ -667,7 +667,7 @@ public class parser extends java_cup.runtime.lr_parser {
     private String tipoFuncionActual = null; //Guarda la funcion actual
     String tipoSwitchActual = null; //Guarda el tipo de la variable del switch actual
     HashSet<String> caseValues = null; //Guarda los case del switch para evitar repetidos
-    Map<String, String> tiposCI = new HashMap<>();
+    Map<String, String> tiposCI = new HashMap<>(); 
     String tipoStr ;
     List<String> listaGlobal = new ArrayList<>();
     String resultExpr;

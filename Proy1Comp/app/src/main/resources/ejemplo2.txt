@@ -5,7 +5,12 @@
     f2 ʃ 2 , "Me gusta el pastel" ʅ ?
     f1 ʃ 2 , 4 ʅ ?
 
-    int var3 = 5? 
+
+    int var3 = 5?
+    float lec = 200.55?
+    
+    
+    print ʃ  lec  ʅ ?
     int var4  = 6?
     if  ʃ  var3 == 5 ^ var4 == 6 ʅ
     ((
@@ -33,13 +38,13 @@
 
     int x1 = 5?
     int array | x1 | ? 
-    array[1] = 2 ?
+    array[1] = 25 ?
 
     x1 = array[1]?
-
+    
     int x = 10?
     int array1 | x | x | ? 
-    array1 [1,1] = 25 ?
+    array1 [1,1] = 5 ?
     x = array1 [1,1]?
     print ʃ  x ʅ ?
     print ʃ  "salimos del for y while bien"  ʅ ? 

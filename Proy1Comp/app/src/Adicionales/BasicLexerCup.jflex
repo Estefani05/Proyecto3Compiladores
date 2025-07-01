@@ -131,7 +131,7 @@ EndOfLineComment     = "@" {InputCharacter}* {LineTerminator}?
 
 Identifier = [a-zA-Z]([a-zA-Z0-9])*
 DecIntegerLiteral = 0 | [1-9][0-9]*
-FloatingPointLiteral = [0-9]+ "." [0-9]+
+FloatingPointLiteral = [0-9]+ \. [0-9]+
 CharLiteral = "'" ( [^'\n\r\\'] | "\\'" ) "'"
 
 
@@ -222,6 +222,8 @@ CharLiteral = "'" ( [^'\n\r\\'] | "\\'" ) "'"
   /* literals */
   {DecIntegerLiteral}  { return symbol(sym.INTEGER_LITERAL, yytext()); }
   \"                   { string.setLength(0); yybegin(STRING); }
+  
+  {FloatingPointLiteral} { return symbol(sym.FLOAT_LITERAL, yytext()); }
 
   {CharLiteral}    { return new Symbol(sym.CHAR_LITERAL); }
 

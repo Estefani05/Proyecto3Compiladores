@@ -64,7 +64,7 @@ public class codigoDestino {
         this.tablaSimbolos = tablaSimbolos;
 
         // Inicializar registros enteros $t0 - $t9
-        for (int i = 0; i <= 9; i++) {
+        for (int i = 0; i <= 7; i++) {
             registrosEnterosDisponibles.add("$t" + i);
         }
 
@@ -129,7 +129,7 @@ public class codigoDestino {
             System.err.println(" Error al guardar el archivo: " + e.getMessage());
         }
     }
-
+    
     private void analizarVidaTemporales() {
         for (int i = 0; i < intermedio.size(); i++) {
             String linea = intermedio.get(i);
@@ -447,19 +447,38 @@ public class codigoDestino {
 
     private void traducirIdentificador(String temp, String var) {
         asignarRegistro(temp);
-        
+
+        String tipo = obtenerTipo(var);
+        String regTemp = registroTemporal.get(temp);
+
         // Verificar si es parámetro de función actual
-        if (funcionActual != null && 
+        if (funcionActual != null &&
             parametrosPorFuncion.containsKey(funcionActual) &&
             parametrosPorFuncion.get(funcionActual).containsKey(var)) {
             
             String regParam = parametrosPorFuncion.get(funcionActual).get(var);
-            textSection.add("move " + registroTemporal.get(temp) + ", " + regParam);
+            textSection.add("move " + regTemp + ", " + regParam);
+
         } else {
-            // Variable global
-            textSection.add("lw " + registroTemporal.get(temp) + ", " + var);
+            // Variable global, con tipo verificado
+            switch (tipo) {
+                case "int":
+                case "char":
+                    textSection.add("lw " + regTemp + ", " + var); // enteros y caracteres
+                    break;
+                case "float":
+                    textSection.add("l.s " + regTemp + ", " + var); // punto flotante
+                    break;
+                case "string":
+                    // string se maneja como puntero (address) [NO]
+                    textSection.add("lw " + regTemp + ", " + var);
+                    break;
+                default:
+                    throw new RuntimeException("Tipo no soportado para identificador: " + tipo);
+            }
         }
     }
+
 
     private void traducirDeclaracionGlobal(String variable, String temp) {
         asignarRegistro(temp);
@@ -550,19 +569,58 @@ public class codigoDestino {
         if (!variablesDeclaradas.contains(var)) {
             variablesDeclaradas.add(var);
 
-            String tipo = obtenerTipo(var); 
-            if (tipo.equals("string")) {
-                dataSection.add(var + ": .word 0"); // puntero a string
-            } else {
-                dataSection.add(var + ": .word 0"); // otros tipos
+            String tipo = obtenerTipo(var);
+            switch (tipo) {
+                case "int":
+                    dataSection.add(var + ": .word 0");
+                    break;
+
+                case "float":
+                    dataSection.add(var + ": .float 0.0");
+                    break;
+
+                case "char":
+                    dataSection.add(var + ": .byte 0");
+                    break;
+
+                case "string":
+                    dataSection.add(var + ": .word 0  # puntero a string");
+                    break;
+
+                default:
+                    System.err.println("Tipo desconocido en declaración: " + tipo);
+                    dataSection.add(var + ": .word 0  # tipo desconocido, usando .word");
+                    break;
             }
         }
 
         asignarRegistro(temp);
         String regTemp = registroTemporal.get(temp);
-        textSection.add("sw " + regTemp + ", " + var);
-    }
+        String tipo = obtenerTipo(var);
 
+        // Generar instrucción de asignación correcta según el tipo
+        switch (tipo) {
+            case "int":
+                textSection.add("sw " + regTemp + ", " + var);
+                break;
+
+            case "float":
+                textSection.add("s.s " + regTemp + ", " + var);
+                break;
+
+            case "char":
+                textSection.add("sb " + regTemp + ", " + var);
+                break;
+
+            case "string":
+                textSection.add("sw " + regTemp + ", " + var); // se guarda dirección
+                break;
+
+            default:
+                textSection.add("sw " + regTemp + ", " + var + "  # tipo desconocido");
+                break;
+        }
+    }
     private void traducirOperacionLogica(String resultado, String op1, String operador, String op2) {
         asignarRegistro(op1);
         asignarRegistro(op2);
@@ -590,7 +648,7 @@ public class codigoDestino {
 
         // Tamaño total en bytes (4 por entero)
         textSection.add("# Reservar memoria para arreglo 1D " + var);
-        textSection.add("mul $a0, " + regTam + ", 4");
+        textSection.add("mul $a0, " + regTam + ", 4"); 
         textSection.add("li $v0, 9");       // syscall 9 = sbrk
         textSection.add("syscall");
         
@@ -627,13 +685,21 @@ public class codigoDestino {
 
     private String obtenerTipo(String id) {
         if (tipoTemporal.containsKey(id)) return tipoTemporal.get(id);
-        ArrayList<String> atributos = tablaSimbolos.get(id);
-        return (atributos != null && !atributos.isEmpty()) ? atributos.get(0) : "int";
+        String atributos = null;
+        for (String scope : tablaSimbolos.keySet()) {
+            for (String symbol : tablaSimbolos.get(scope)) {
+                if (symbol.startsWith(id + ":")) {
+                    atributos =  symbol.split(":")[1];
+                }
+            }
+        }
+        return (atributos != null ) ? atributos : "int";
     }
 
     private void traducirLectura(String var) {
         // Intentamos obtener el tipo primero de temporales
         String tipo = obtenerTipo(var);
+        //System.out.println("Tipo: " + tipo+ " Var : " + var);
 
         switch (tipo) {
             case "int":
@@ -652,6 +718,15 @@ public class codigoDestino {
                 textSection.add("li $v0, 12      # syscall para leer char");
                 textSection.add("syscall");
                 textSection.add("sb $v0, " + var);
+                break;
+            case "string":
+                String etiqueta = var + "_buffer";
+                dataSection.add(etiqueta + ": .space 128"); 
+                textSection.add("li $v0, 8       # syscall para leer string");
+                textSection.add("la $a0, " + etiqueta);
+                textSection.add("li $a1, 128");
+                textSection.add("syscall");
+                textSection.add("sw $a0, " + var + "     # guardar dirección del buffer");
                 break;
 
             default:
@@ -976,12 +1051,13 @@ public class codigoDestino {
         textSection.add("add $t8, $t8, " + regIndice2 + "               # + columna");
         textSection.add("sll $t8, $t8, 2                              # * 4 bytes");
         textSection.add("add $t8, " + regArray + ", $t8               # dirección base + offset");
+       // System.out.println(regValor + "<--------regValor");
         textSection.add("sw " + regValor + ", 0($t8)                  # guardar valor");
         
         liberarRegistroTemporal(regColumnas);
     }
 
-
+    
     private void asignarRegistro(String temp) {
         if (registroTemporal.containsKey(temp)) return;
         String tipo = obtenerTipo(temp);
@@ -1002,7 +1078,7 @@ public class codigoDestino {
     private void liberarRegistro(String temp) {
     String reg = registroTemporal.remove(temp);
         if (reg != null) {
-            String tipo = obtenerTipo(temp);
+            String tipo = obtenerTipo(temp);  
             if (tipo.equals("float")) {
                 registrosFlotantesDisponibles.addLast(reg);
             } else {
