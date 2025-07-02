@@ -14,6 +14,7 @@ public class codigoDestino {
     private Deque<String> registrosEnterosDisponibles;
     private Deque<String> registrosFlotantesDisponibles;
     private int contadorStrings = 0;
+    private int contadorFloat = 0;
     private  HashMap<String, ArrayList<String>> tablaSimbolos;
     private Map<String, Map<String, String>> parametrosPorFuncion = new HashMap<>();
     private String funcionActual = null;
@@ -28,6 +29,7 @@ public class codigoDestino {
     private static final Pattern charPattern = Pattern.compile("^(t\\d+) = '(.)';$");
     private static final Pattern stringPattern = Pattern.compile("^(t\\d+) = \"(.*)\";$");
     private static final Pattern idPattern = Pattern.compile("^(t\\d+) = ([a-zA-Z_][a-zA-Z0-9_]*);$");
+    private static final Pattern floatPattern = Pattern.compile("^(t\\d+) = (\\d+\\.\\d+);$");
     private static final Pattern tempPattern = Pattern.compile("t\\d+");
     private static final Pattern declaracionGlobalPattern = Pattern.compile("^declaracion_global_\\d+:\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*(t\\d+);$");
     private static final Pattern declaracionPattern = Pattern.compile("^declaracion_\\d+: ([a-zA-Z_][a-zA-Z0-9_]*) = (t\\d+);$");
@@ -51,6 +53,9 @@ public class codigoDestino {
     private static final Pattern inicioFor = Pattern.compile("^INICIO_for_(\\d+):$");
     private static final Pattern incrementoFor = Pattern.compile("^INCREMENTO_for_ \\((t\\d+)\\)$");
     private static final Pattern incrementoForPattern = Pattern.compile("^INCREMENTO_for_ \\((t\\d+)\\)$");
+    private static final Pattern declaracionSinIni = Pattern.compile("declaracion_\\d+:\\s*(\\w+)\\s*=\\s*sin_inicializar\\s*;");
+    private static final Pattern increDecrePattern = Pattern.compile("(incremento|decremento)_\\d+:\\s*(\\w+)\\s*=\\s*\\2\\s*([+-])\\s*1\\s*;");
+
 
     public codigoDestino(String rutaArchivo, Map<String, String> tiposCI,  HashMap<String, ArrayList<String>> tablaSimbolos) {
         this.intermedio = cargarCodigoIntermedio(rutaArchivo);
@@ -89,6 +94,7 @@ public class codigoDestino {
     public String generarMIPS() {
         // 1. Analizar vida de temporales en todo el código intermedio
         analizarVidaTemporales();
+        dataSection.add("uno_float: .float 1.0");
 
         // 2. Traducir línea por línea y liberar registros cuando corresponda
         for (int i = 0; i < intermedio.size(); i++) {
@@ -163,14 +169,12 @@ public class codigoDestino {
     }
 
     private void procesarLinea(String linea) {
+
         if (linea.contains("error")) {
             System.err.println("  Línea con error: " + linea);
             return;
         }
-        if (linea.contains("sin_inicializar")) {
-            System.err.println(" Línea con valor no inicializado: " + linea);
-            return;
-        }
+
 
         if (linea.startsWith("INICIO_funcion_")) {
             String nombreFuncion = linea.substring("INICIO_funcion_".length());
@@ -206,6 +210,20 @@ public class codigoDestino {
         }
 
         Matcher m;
+
+        m = declaracionSinIni.matcher(linea);
+
+        if (m.matches()) {
+            String variable = m.group(1);
+            traducirDeclaracionSinIni(variable);
+            return;
+        }
+
+        if (linea.contains("sin_inicializar")) {
+            
+            System.err.println(" Línea con valor no inicializado: " + linea);
+            return;
+        }
 
         m = enteroPattern.matcher(linea);
         if (m.matches()) {
@@ -417,6 +435,24 @@ public class codigoDestino {
             return;
         }
 
+        m = increDecrePattern.matcher(linea);
+        if (m.matches()) {  
+            String variable = m.group(2); 
+            String operador = m.group(3); 
+            
+            traducirIncrementoDecremento(variable, operador);
+            return;
+        }
+
+        m = floatPattern.matcher(linea);
+
+        if (m.matches()) {
+            String temporal = m.group(1);
+            String valor = m.group(2);
+            traducirFloat(temporal, valor);
+            return;
+        }
+
 
         System.err.println("  No se reconoce patrón para línea: " + linea);
     }
@@ -435,6 +471,16 @@ public class codigoDestino {
         int ascii = (int) valor;
         asignarRegistro(temp);
         textSection.add("li " + registroTemporal.get(temp) + ", " + ascii);
+    }
+
+    private void traducirFloat(String temp, String valor) {
+        asignarRegistro(temp);
+
+        // Generar una etiqueta para el valor
+        String etiqueta = "float_" + (++contadorFloat);
+
+        dataSection.add(etiqueta + ": .float " + valor);
+        textSection.add("l.s " + registroTemporal.get(temp) + ", " + etiqueta);
     }
 
     private void traducirString(String temp, String valor) {
@@ -492,76 +538,135 @@ public class codigoDestino {
     }
 
     private void traducirOperacionAritmetica(String temp, String op1, String operador, String op2) {
+        String tipo = obtenerTipo(op1);  // Se asume que op1 y op2 tienen el mismo tipo
+
+        boolean esFloat = tipo.equals("float");
+
+        
         asignarRegistro(temp);
         asignarRegistro(op1);
         asignarRegistro(op2);
-        
+
         String regTemp = registroTemporal.get(temp);
         String regOp1 = registroTemporal.get(op1);
         String regOp2 = registroTemporal.get(op2);
-        
+
         String instruccion;
         boolean instruccionGenerada = true;
+
         switch (operador) {
             case "+":
-                instruccion = "add " + regTemp + ", " + regOp1 + ", " + regOp2;
+                instruccion = esFloat
+                    ? "add.s " + regTemp + ", " + regOp1 + ", " + regOp2
+                    : "add " + regTemp + ", " + regOp1 + ", " + regOp2;
                 break;
             case "-":
-                instruccion = "sub " + regTemp + ", " + regOp1 + ", " + regOp2;
+                instruccion = esFloat
+                    ? "sub.s " + regTemp + ", " + regOp1 + ", " + regOp2
+                    : "sub " + regTemp + ", " + regOp1 + ", " + regOp2;
                 break;
             case "*":
-                instruccion = "mul " + regTemp + ", " + regOp1 + ", " + regOp2;
+                instruccion = esFloat
+                    ? "mul.s " + regTemp + ", " + regOp1 + ", " + regOp2
+                    : "mul " + regTemp + ", " + regOp1 + ", " + regOp2;
                 break;
             case "/":
-                instruccion = "div " + regOp1 + ", " + regOp2;
-                textSection.add(instruccion);
-                instruccion = "mflo " + regTemp;
+                if (esFloat) {
+                    instruccion = "div.s " + regTemp + ", " + regOp1 + ", " + regOp2;
+                } else {
+                    textSection.add("div " + regOp1 + ", " + regOp2);
+                    instruccion = "mflo " + regTemp;
+                }
                 break;
-            case "^": 
+            case "^":
+                if (esFloat) {
+                    String etiquetaCero = "POTENCIA_CERO_" + contadorStrings++;
+                    String etiquetaInicio = "POTENCIA_LOOP_" + contadorStrings++;
+                    String etiquetaFin = "POTENCIA_FIN_" + contadorStrings++;
+
+                    String regContador = obtenerRegistroTemporal();         // $tX (int)
+                    String regBase = regOp1;                                // $fX (float base)
+
+                    // Convertir regOp2 (float exponente) a entero
+                    String regFloatToInt = obtenerRegistroTemporalFloat();  // $fZ
+                    String regTempInt = obtenerRegistroTemporal();          // $tY
+
+                    // regResultado = 1.0
+                    textSection.add("l.s " + regTemp + ", uno_float");
+
+                    // Convertir exponente a entero
+                    textSection.add("cvt.w.s " + regFloatToInt + ", " + regOp2);
+                    textSection.add("mfc1 " + regTempInt + ", " + regFloatToInt);
+                    textSection.add("move " + regContador + ", " + regTempInt);
+
+                    // Exponente == 0 ⇒ resultado = 1.0
+                    textSection.add("beqz " + regContador + ", " + etiquetaCero);
+
+                    // Inicio del bucle
+                    textSection.add(etiquetaInicio + ":");
+                    textSection.add("blez " + regContador + ", " + etiquetaFin);
+                    textSection.add("mul.s " + regTemp + ", " + regTemp + ", " + regBase);
+                    textSection.add("addi " + regContador + ", " + regContador + ", -1");
+                    textSection.add("bgtz " + regContador + ", " + etiquetaInicio);
+
+                    // Caso exponente == 0
+                    textSection.add(etiquetaCero + ":");
+                    // (Nota: ya está inicializado en 1.0, así que no hay que hacer nada)
+
+                    // Fin
+                    textSection.add(etiquetaFin + ":");
+
+
+                    // Liberar registros usados
+                    liberarRegistroTemporal(regContador);
+                    liberarRegistroTemporal(regTempInt);
+                    liberarRegistroTemporalFloat(regFloatToInt);
+
+                    instruccionGenerada = true;
+                    return;
+                }
+
+
                 String etiquetaInicio = "POTENCIA_LOOP_" + contadorStrings++;
                 String etiquetaFin = "FIN_POTENCIA_" + contadorStrings++;
-                
+                String etiquetaCero = "POTENCIA_CERO_" + contadorStrings++;
+
                 // Asignar registros temporales para el algoritmo
                 String regContador = obtenerRegistroTemporal();
                 String regBase = obtenerRegistroTemporal();
-                
-                // Manejar caso especial: exponente = 0
-                String etiquetaCero = "POTENCIA_CERO_" + contadorStrings++;
+
                 textSection.add("beqz " + regOp2 + ", " + etiquetaCero);
-                
-                // Inicializar valores
-                textSection.add("li " + regTemp + ", 1");           // resultado = 1
-                textSection.add("move " + regContador + ", " + regOp2);  // contador = exponente
-                textSection.add("move " + regBase + ", " + regOp1);      // base = op1
-                
-                // Bucle principal
+                textSection.add("li " + regTemp + ", 1");
+                textSection.add("move " + regContador + ", " + regOp2);
+                textSection.add("move " + regBase + ", " + regOp1);
+
                 textSection.add(etiquetaInicio + ":");
                 textSection.add("blez " + regContador + ", " + etiquetaFin);
                 textSection.add("mul " + regTemp + ", " + regTemp + ", " + regBase);
                 textSection.add("addi " + regContador + ", " + regContador + ", -1");
                 textSection.add("j " + etiquetaInicio);
-                
-                // Caso exponente = 0
+
                 textSection.add(etiquetaCero + ":");
                 textSection.add("li " + regTemp + ", 1");
                 textSection.add("j " + etiquetaFin);
-                
+
                 textSection.add(etiquetaFin + ":");
-                
-                // Liberar registros temporales
+
                 liberarRegistroTemporal(regContador);
                 liberarRegistroTemporal(regBase);
-                
+
                 instruccionGenerada = false;
                 return;
+
             default:
                 throw new RuntimeException("Operador no soportado: " + operador);
         }
-        
+
         if (instruccionGenerada) {
             textSection.add(instruccion);
         }
     }
+
 
     private Set<String> variablesDeclaradas = new HashSet<>();
 
@@ -775,6 +880,22 @@ public class codigoDestino {
         textSection.add("syscall");
     }
 
+    private void traducirDeclaracionSinIni(String var) {
+        if (!variablesDeclaradas.contains(var)) {
+            variablesDeclaradas.add(var);
+
+            String tipo = obtenerTipo(var);
+
+            // Valor por defecto
+            if (tipo.equals("float")) {
+                dataSection.add(var + ": .float 0.0");
+            } else {
+                dataSection.add(var + ": .word 0");
+            }
+            
+        }
+    }
+
     private void traducirAsignacionVar(String var, String temp) {
         asignarRegistro(temp);
         String regTemp = registroTemporal.get(temp);
@@ -794,42 +915,87 @@ public class codigoDestino {
             textSection.add("# Asignación: " + var + " = " + temp);
         }
     }
+    
     private void traducirRelacional(String dest, String op1, String op2, String operador) {
         asignarRegistro(dest);
         asignarRegistro(op1);
         asignarRegistro(op2);
 
-        switch (operador) {
-            case ">":
-                // op1 > op2  => slt dest, op2, op1
-                textSection.add("slt " + registroTemporal.get(dest) + ", " + registroTemporal.get(op2) + ", " + registroTemporal.get(op1));
-                break;
-            case "<":
-                // op1 < op2  => slt dest, op1, op2
-                textSection.add("slt " + registroTemporal.get(dest) + ", " + registroTemporal.get(op1) + ", " + registroTemporal.get(op2));
-                break;
-            case ">=":
-                // op1 >= op2  => not(op1 < op2)
-                textSection.add("slt " + registroTemporal.get(dest) + ", " + registroTemporal.get(op1) + ", " + registroTemporal.get(op2));
-                textSection.add("xori " + registroTemporal.get(dest) + ", " + registroTemporal.get(dest) + ", 1");
-                break;
-            case "<=":
-                // op1 <= op2  => not(op1 > op2)
-                textSection.add("slt " + registroTemporal.get(dest) + ", " + registroTemporal.get(op2) + ", " + registroTemporal.get(op1));
-                textSection.add("xori " + registroTemporal.get(dest) + ", " + registroTemporal.get(dest) + ", 1");
-                break;
-            case "==":
-                // op1 == op2  => seq dest, op1, op2 (no existe en MIPS, se simula)
-                textSection.add("xor " + registroTemporal.get(dest) + ", " + registroTemporal.get(op1) + ", " + registroTemporal.get(op2));
-                textSection.add("sltiu " + registroTemporal.get(dest) + ", " + registroTemporal.get(dest) + ", 1");
-                break;
-            case "!=":
-                // op1 != op2 => xor dest, op1, op2; sltu dest, $zero, dest
-                textSection.add("xor " + registroTemporal.get(dest) + ", " + registroTemporal.get(op1) + ", " + registroTemporal.get(op2));
-                textSection.add("sltu " + registroTemporal.get(dest) + ", $zero, " + registroTemporal.get(dest));
-                break;
-            default:
-                System.err.println(" Operador relacional no soportado: " + operador);
+        String tipo = obtenerTipo(op1); 
+        String regDest = registroTemporal.get(dest);
+        String regOp1 = registroTemporal.get(op1);
+        String regOp2 = registroTemporal.get(op2);
+
+        if (tipo.equals("int")) {
+            switch (operador) {
+                case ">":
+                    textSection.add("slt " + regDest + ", " + regOp2 + ", " + regOp1);
+                    break;
+                case "<":
+                    textSection.add("slt " + regDest + ", " + regOp1 + ", " + regOp2);
+                    break;
+                case ">=":
+                    textSection.add("slt " + regDest + ", " + regOp1 + ", " + regOp2);
+                    textSection.add("xori " + regDest + ", " + regDest + ", 1");
+                    break;
+                case "<=":
+                    textSection.add("slt " + regDest + ", " + regOp2 + ", " + regOp1);
+                    textSection.add("xori " + regDest + ", " + regDest + ", 1");
+                    break;
+                case "==":
+                    textSection.add("xor " + regDest + ", " + regOp1 + ", " + regOp2);
+                    textSection.add("sltiu " + regDest + ", " + regDest + ", 1");
+                    break;
+                case "!=":
+                    textSection.add("xor " + regDest + ", " + regOp1 + ", " + regOp2);
+                    textSection.add("sltu " + regDest + ", $zero, " + regDest);
+                    break;
+                default:
+                    System.err.println("Operador relacional int no soportado: " + operador);
+            }
+        } else if (tipo.equals("float")) {
+            String etiquetaTrue = "REL_TRUE_" + contadorStrings++;
+            String etiquetaFin = "REL_FIN_" + contadorStrings++;
+
+            // Comparar op1 y op2 como float
+            switch (operador) {
+                case "<":
+                    textSection.add("c.lt.s " + regOp1 + ", " + regOp2);
+                    break;
+                case ">":
+                    textSection.add("c.lt.s " + regOp2 + ", " + regOp1);
+                    break;
+                case "<=":
+                    textSection.add("c.le.s " + regOp1 + ", " + regOp2);
+                    break;
+                case ">=":
+                    textSection.add("c.le.s " + regOp2 + ", " + regOp1);
+                    break;
+                case "==":
+                    textSection.add("c.eq.s " + regOp1 + ", " + regOp2);
+                    break;
+                case "!=":
+                    textSection.add("c.eq.s " + regOp1 + ", " + regOp2);
+                    break;
+                default:
+                    System.err.println("Operador relacional float no soportado: " + operador);
+                    return;
+            }
+
+            // Resultado de comparación va en regDest: 1 si verdadero, 0 si falso
+            if (!operador.equals("!=")) {
+                textSection.add("bc1t " + etiquetaTrue);
+            } else {
+                textSection.add("bc1f " + etiquetaTrue); // para != usamos negación
+            }
+
+            textSection.add("li " + regDest + ", 0");  // falso
+            textSection.add("j " + etiquetaFin);
+            textSection.add(etiquetaTrue + ":");
+            textSection.add("li " + regDest + ", 1");  // verdadero
+            textSection.add(etiquetaFin + ":");
+        } else {
+            System.err.println("Tipo no soportado en relacional: " + tipo);
         }
     }
 
@@ -1057,6 +1223,16 @@ public class codigoDestino {
         liberarRegistroTemporal(regColumnas);
     }
 
+    private void traducirIncrementoDecremento(String variable, String operador) {
+        String reg = registroTemporal.get(variable);
+        String offset = operador.equals("+") ? "1" : "-1";
+
+        textSection.add("lw " + reg + ", " + variable);                      // Cargar valor actual
+        textSection.add("addi " + reg + ", " + reg + ", " + offset);        // Incrementar/decrementar
+        textSection.add("sw " + reg + ", " + variable);  
+    }
+
+
     
     private void asignarRegistro(String temp) {
         if (registroTemporal.containsKey(temp)) return;
@@ -1097,6 +1273,17 @@ public class codigoDestino {
 
     private void liberarRegistroTemporal(String registro) {
         registrosEnterosDisponibles.addLast(registro);
+    }
+
+    private String obtenerRegistroTemporalFloat() {
+        if (registrosFlotantesDisponibles.isEmpty()) {
+            throw new RuntimeException("No hay registros disponibles para operación temporal");
+        }
+        return registrosFlotantesDisponibles.removeFirst();
+    }
+
+    private void liberarRegistroTemporalFloat(String registro) {
+        registrosFlotantesDisponibles.addLast(registro);
     }
 
     private void procesarArgumento(String tempArg, int indice) {

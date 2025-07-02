@@ -3,16 +3,21 @@
   main ʃʅ
   ((
     f2 ʃ 2 , "Me gusta el pastel" ʅ ?
-    f1 ʃ 2 , 4 ʅ ?
+    int resultado = 5 ?
+    resultado = f1 ʃ 2 , 4 ʅ ?
 
+    int var3 = "5" + 5?
 
-    int var3 = 5?
-    float lec = 200.55?
+   float var7 = 123.2 ** 5.0?
+
+    float lec?
+    float lec2?
     
-    
-    print ʃ  lec  ʅ ?
+    leer ʃ  lec  ʅ ?
+    leer ʃ  lec2  ʅ ?
+    print ʃ  var7  ʅ ?
     int var4  = 6?
-    if  ʃ  var3 == 5 ^ var4 == 6 ʅ
+    if  ʃ  3 ʅ
     ((
       print ʃ "entra al if" ʅ ?
     /
@@ -22,7 +27,7 @@
 
     /
 
-    for ʃ int i = 0 ? i < 10? i = i + 1 ʅ 
+    for ʃ int i = 20 ? 2? i-- ʅ 
     ((
           string msg1 = "hola" ?
           print ʃ  msg1  ʅ ? 
@@ -49,11 +54,13 @@
     print ʃ  x ʅ ?
     print ʃ  "salimos del for y while bien"  ʅ ? 
   /
+
   function int f1 ʃ int num1 , int num2 ʅ
   ((
-    print ʃ  num1 ** num2  ʅ ? 
-    return num1?
+    int y = num1 + num2  ? 
+    return y?
   /
+  
 
   function string f2 ʃ int num1 , string num2 ʅ
   ((

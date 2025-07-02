@@ -3,6 +3,9 @@ TIPO       LÍNEA COL   MENSAJE
 -----------------------------------------------------
 SEMANTICO  5     37    Función 'f2' no ha sido declarada
 SEMANTICO  5     37    Función 'f2' no tiene tipo de retorno definido
-SEMANTICO  6     18    Función 'f1' no ha sido declarada
-SEMANTICO  6     18    Función 'f1' no tiene tipo de retorno definido
-SEMANTICO  41    16    El índice del arreglo debe ser de tipo 'int', no 'float'
+SEMANTICO  7     30    Función 'f1' no ha sido declarada
+SEMANTICO  7     30    Función 'f1' no tiene tipo de retorno definido
+SEMANTICO  9     23    Tipos incompatibles en operación aritmética: 'string' y 'int'
+SEMANTICO  9     23    No se puede asignar un valor de tipo 'string' a una variable de tipo 'int'
+SEMANTICO  21    5     La condición del 'if' debe ser de tipo 'expr_rel' (bool), no 'int'
+SEMANTICO  31    5     La segunda condición del 'for' debe ser de tipo 'expr_rel' (bool), no 'int'
